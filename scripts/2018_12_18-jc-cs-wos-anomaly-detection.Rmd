@@ -1,0 +1,204 @@
+---
+title: "Detect CS/WOS anomalies"
+---
+
+Upload the data and packages.
+```{r}
+library (dplyr)
+library (ggplot2)
+library (ggpubr)
+
+df = read.csv('C:/Users/jchang/Desktop/Projects/Funnel Anomaly Detection/data/CSWOSAnomalyDetectionTrainingDatav3_2018-12-19_1432.csv')
+head(df)
+```
+
+
+The data is normal, therefore we can calculate simple Confidence Interval.
+```{r}
+hist(df$cs_wos,
+     breaks = 2^7
+     # , xlim = c(0.4,1.2)
+)
+ggdensity(df$cs_wos)
+ggqqplot(df$cs_wos)
+
+shapiro.test(df$cs_wos)
+```
+
+
+
+Confidence Intervals.
+```{r}
+
+mu = mean(df$cs_wos)
+sd = mean(df$cs_wos)*(1-mean(df$cs_wos))
+
+c(mu-1.96*sd, mu+1.96*sd)
+
+```
+
+
+
+
+
+The data is skewed, therefore we will use calculate significance based on Bootstrap-t Confidence Intervals.
+```{r}
+hist(df$cs_wos,
+     breaks = 2^7
+     # , xlim = c(0.4,1.2)
+)
+ggdensity(df$cs_wos)
+ggqqplot(df$cs_wos)
+
+shapiro.test(df$cs_wos)
+
+# hist(df$cs_wos[which(df$wosdate >= as.Date('2018-10-01') &
+#                      df$wosdate <= as.Date('2018-10-31') &
+#                      df$hour >= 6 &
+#                      df$hour <= 18 &
+#                      df$dow >= 1 &
+#                      df$dow <= 5)],
+#      breaks = 2^7)
+
+
+```
+
+
+Write the bootstrap function to make future life easier.
+```{r}
+
+bootstrap_t_ci = function (x, B, n_b, alpha_decimal){
+  
+  # Create storage vectors
+  theta_b = vector(length = B)
+  sigma_b = vector(length = B)
+  z_b = vector(length = B)
+  
+  # Calculate the mean of the underlying distribution.
+  theta = mean(df$cs_wos)
+  
+  # Create B Re-samples
+  for (i in 1:B){
+    resample_b = sample(
+      x = df$cs_wos,
+      size = n_b,
+      replace = TRUE
+    )
+  
+  # For each resample, calculate:
+    ## Its mean.
+    theta_b[i] = mean(resample_b)
+    
+    ## Its standard error.
+    sigma_b[i] = sd(resample_b)/sqrt(n_b)
+    
+    ## Its Z, and record this in a sorted vector.
+    z_b[i] = (theta_b[i]-theta)/sigma_b[i]
+  
+  }
+  
+  # Calculate the standard error of the underlying distribution.
+  se = sd(theta_b)
+  
+  # Calculate the confidence interval.
+  lower = (1-alpha_decimal)/2
+  upper = (1-alpha_decimal)/2 + alpha_decimal
+  
+  ci = theta - se*quantile(z_b, c(upper, lower)) # Yes, these are supposed to be switched
+  names(ci) = c(lower, upper)
+  
+  return(ci)
+}
+
+
+
+
+bootstrap_percentile_ci = function (x, B, n_b, alpha_decimal){
+  
+  # Create storage vectors
+  theta_b = vector(length = B)
+  
+  # Create B Re-samples
+  for (i in 1:B){
+    resample_b = sample(
+      x = df$cs_wos,
+      size = n_b,
+      replace = TRUE
+    )
+  
+  # For each resample, calculate:
+    ## Its mean.
+    theta_b[i] = mean(resample_b)
+  }
+  
+  # Calculate the confidence interval.
+  ci = quantile(theta_b, c(lower, upper))
+  
+  return(ci)
+}
+
+```
+
+
+How does the bootstrap do on CS/WOS?
+```{r}
+
+# Training on ALL DATA
+print('All')
+bootstrap_t_ci(x = df$cs_wos,
+               B = 1000,
+               n_b = 10,
+               alpha_decimal = 0.95)
+
+bootstrap_percentile_ci(x = df$cs_wos,
+                        B = 1000,
+                        n_b = 10,
+                        alpha_decimal = 0.95)
+
+
+# Training on 11/1/2018 - 11/14/2018 MONDAYS
+# print('All, Normal')
+# bootstrap_t_ci(x = df$cs_wos[which(df$wosdate >= as.Date('2018-10-01') &
+#                                    df$wosdate <= as.Date('2018-10-31') &
+#                                    df$hour >= 6 &
+#                                    df$hour <= 18 &
+#                                    df$dow >= 1 &
+#                                    df$dow <= 5)],
+#                B = 1000,
+#                n_b = 10,
+#                alpha_decimal = 0.95)
+
+```
+
+Which apps fall out of the confidence interval?
+
+```{r}
+
+length(df$cs_wos[which(df$cs_wos < 0.8293449)])
+length(df$cs_wos[which(df$cs_wos < 0.8293449)])/length(df$cs_wos)
+
+```
+
+
+
+
+ggplot for periscope.
+
+```{r}
+library(ggplot2)
+
+df = read.csv('C:/Users/jchang/Desktop/Projects/Funnel Anomaly Detection/data/CSWOSMonitoring_2018-12-19_1623.csv')
+
+qplot(round(df$cs_wos,2), 
+      geom = 'histogram',
+      binwidth = 0.005)
+
+ggplot(data = df, aes(x = cs_wos, color = grouping, fill = grouping)) +
+  geom_density(alpha = 0.2)
+
+# ggplot(data = df, aes(x = cs_wos)) +
+#   geom_bar(aes(y = ))
+
+head(df)
+
+```
